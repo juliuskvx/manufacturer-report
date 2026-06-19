@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    permissions:
+      contents: write   # needed to commit the Excel back to repo
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,8 +42,16 @@ jobs:
       - name: Generate PPTX
         run: node scripts/gen_pptx.js
 
-      - name: Generate Excel
+      - name: Generate & update Excel archive
         run: python scripts/gen_excel.py
+
+      - name: Commit Excel archive to repo
+        run: |
+          git config user.name "EuroAir Intel Bot"
+          git config user.email "aviotiongeek@gmail.com"
+          git add data/historical_data.xlsx
+          git diff --cached --quiet || git commit -m "📊 Monthly data update: ${{ env.REPORT_DATE }}"
+          git push
 
       - name: Send email
         env:
@@ -56,4 +67,4 @@ jobs:
           path: |
             output/Manufacturer_Intelligence_Report_*.pptx
             output/Manufacturer_Data_*.xlsx
-          retention-days: 90
+          retention-days: 365
