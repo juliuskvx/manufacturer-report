@@ -1,0 +1,11 @@
+{
+  "name": "manufacturer-report",
+  "version": "1.0.0",
+  "description": "EuroAir Intel — Monthly Boeing vs Airbus Intelligence Report",
+  "scripts": {
+    "generate": "python scripts/fetch_data.py && python scripts/gen_charts.py && node scripts/gen_pptx.js"
+  },
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}
