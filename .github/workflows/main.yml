@@ -3,8 +3,6 @@ name: Monthly Manufacturer Report
 on:
   workflow_dispatch:
   schedule:
-    # Backup cron: 15th of each month at 08:00 UTC (11:00 Vilnius)
-    # Primary trigger is cron-job.org (more reliable than GitHub cron)
     - cron: "0 8 15 * *"
 
 jobs:
@@ -27,8 +25,7 @@ jobs:
           node-version: "24"
 
       - name: Install Python dependencies
-        run: |
-          pip install yfinance openpyxl xlrd matplotlib numpy --break-system-packages -q
+        run: pip install yfinance openpyxl xlrd matplotlib numpy --break-system-packages -q
 
       - name: Install Node dependencies
         run: npm install --no-package-lock
@@ -42,6 +39,9 @@ jobs:
       - name: Generate PPTX
         run: node scripts/gen_pptx.js
 
+      - name: Generate Excel
+        run: python scripts/gen_excel.py
+
       - name: Send email
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
@@ -49,9 +49,11 @@ jobs:
           REPORT_DATE: ${{ env.REPORT_DATE }}
         run: python scripts/send_email.py
 
-      - name: Upload PPTX as artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: manufacturer-report-${{ env.REPORT_DATE }}
-          path: output/Manufacturer_Intelligence_Report_*.pptx
+          path: |
+            output/Manufacturer_Intelligence_Report_*.pptx
+            output/Manufacturer_Data_*.xlsx
           retention-days: 90
