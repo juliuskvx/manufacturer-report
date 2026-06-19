@@ -1,11 +1,14 @@
 """
 gen_excel.py — EuroAir Intel Manufacturer Report
-Generates a professional Excel workbook with 5 sheets:
-  1. Summary Dashboard
-  2. Monthly Deliveries (with chart)
-  3. Model Breakdown (with chart)
-  4. Backlog Analysis (with chart)
-  5. Stock Data
+Maintains a persistent historical archive: data/historical_data.xlsx
+Each run appends one row of data. The file grows month by month.
+
+Sheets:
+  1. Historical Data  — one row per month, all key metrics
+  2. Monthly Deliveries — time series, auto-extending
+  3. Model Breakdown   — latest month detail
+  4. Backlog Analysis  — latest month detail
+  5. Stock Data        — latest month + running stock history
 """
 
 import json
@@ -14,28 +17,27 @@ from datetime import datetime
 
 try:
     import openpyxl
-    from openpyxl import Workbook
-    from openpyxl.styles import (Font, PatternFill, Alignment, Border, Side,
-                                  GradientFill)
-    from openpyxl.utils import get_column_letter
-    from openpyxl.chart import BarChart, LineChart, Reference, PieChart
-    from openpyxl.chart.series import DataPoint
-    from openpyxl.chart.label import DataLabel
-except ImportError:
-    os.system("pip install openpyxl --break-system-packages -q")
-    from openpyxl import Workbook
+    from openpyxl import Workbook, load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
-    from openpyxl.chart import BarChart, LineChart, Reference, PieChart
-    from openpyxl.chart.series import DataPoint
+    from openpyxl.chart import BarChart, LineChart, Reference
+except ImportError:
+    os.system("pip install openpyxl --break-system-packages -q")
+    from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.chart import BarChart, LineChart, Reference
 
 with open("output/manufacturer_data.json") as f:
     d = json.load(f)
 
-B = d["boeing"]
-A = d["airbus"]
+B  = d["boeing"]
+A  = d["airbus"]
 Bs = B.get("stock", {})
 As = A.get("stock", {})
+
+ARCHIVE_PATH = "data/historical_data.xlsx"
+os.makedirs("data", exist_ok=True)
 
 # ── Style helpers ──────────────────────────────────────────────────────────────
 def fill(hex_color):
@@ -48,343 +50,296 @@ def border_thin():
     s = Side(style="thin", color="E2E8F0")
     return Border(left=s, right=s, top=s, bottom=s)
 
-def border_medium():
-    s = Side(style="medium", color="CBD5E1")
-    return Border(left=s, right=s, top=s, bottom=s)
-
 def align(h="left", v="center", wrap=False):
     return Alignment(horizontal=h, vertical=v, wrap_text=wrap)
 
-# Color palette
-NAVY    = "0D1F3C"
-BOEING  = "0033A0"
-AIRBUS  = "005B8E"
-GOLD    = "C9A84C"
-OFFWHITE= "F8FAFC"
-LGRAY   = "E2E8F0"
-SLATE   = "64748B"
-WHITE   = "FFFFFF"
-GREEN   = "16A34A"
-RED     = "DC2626"
-BLIGHT  = "D6E4FF"
-ALIGHT  = "D0EEFF"
+def style_cell(c, bold=False, size=10, color="1E293B", bg=None, h_align="left", italic=False):
+    c.font = font(bold=bold, size=size, color=color, italic=italic)
+    if bg: c.fill = fill(bg)
+    c.alignment = align(h_align)
+    c.border = border_thin()
 
-def set_col_width(ws, col, width):
-    ws.column_dimensions[get_column_letter(col)].width = width
+NAVY   = "0D1F3C"
+BOEING = "0033A0"
+AIRBUS = "005B8E"
+GOLD   = "C9A84C"
+OFFWHITE = "F8FAFC"
+LGRAY  = "E2E8F0"
+SLATE  = "64748B"
+WHITE  = "FFFFFF"
+GREEN  = "16A34A"
+RED    = "DC2626"
+BLIGHT = "D6E4FF"
+ALIGHT = "D0EEFF"
 
-def header_row(ws, row, values, colors=None, text_color=WHITE, size=11, bold=True):
-    for i, val in enumerate(values, 1):
-        c = ws.cell(row=row, column=i, value=val)
-        c.font = font(bold=bold, size=size, color=text_color)
-        c.fill = fill(colors[i-1] if colors and i <= len(colors) else NAVY)
-        c.alignment = align("center")
-        c.border = border_thin()
-
-def data_row(ws, row, values, bg=WHITE, bold=False, aligns=None, colors=None):
-    for i, val in enumerate(values, 1):
-        c = ws.cell(row=row, column=i, value=val)
-        c.font = font(bold=bold, size=10, color=colors[i-1] if colors else "1E293B")
-        c.fill = fill(bg)
-        c.alignment = align(aligns[i-1] if aligns else "left")
-        c.border = border_thin()
-
-def title_block(ws, row, title, subtitle, span=8):
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=span)
-    c = ws.cell(row=row, column=1, value=title)
-    c.font = font(bold=True, size=18, color=WHITE)
-    c.fill = fill(NAVY)
-    c.alignment = align("center")
-
-    ws.merge_cells(start_row=row+1, start_column=1, end_row=row+1, end_column=span)
-    c2 = ws.cell(row=row+1, column=1, value=subtitle)
-    c2.font = font(bold=False, size=10, color=SLATE, italic=True)
-    c2.fill = fill(OFFWHITE)
-    c2.alignment = align("center")
-
-# ── Build workbook ─────────────────────────────────────────────────────────────
-wb = Workbook()
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SHEET 1: Summary Dashboard
-# ═══════════════════════════════════════════════════════════════════════════════
-ws1 = wb.active
-ws1.title = "Summary Dashboard"
-ws1.sheet_view.showGridLines = False
-ws1.row_dimensions[1].height = 40
-ws1.row_dimensions[2].height = 22
-
-title_block(ws1, 1, f"EuroAir Intel — Manufacturer Intelligence Report", f"{d['reportMonth']}  ·  Data as of {d['asOf']}  ·  Sources: Boeing.com, Airbus.com, Yahoo Finance")
-
-# Column widths
-for col, w in enumerate([22, 18, 18, 4, 22, 18, 18], 1):
-    set_col_width(ws1, col, w)
-
-# Section headers
-ws1.row_dimensions[4].height = 26
-for col, (val, fc) in enumerate(zip(["Metric", "Boeing", "Airbus", "", "Metric", "Boeing", "Airbus"],
-                                     [NAVY, BOEING, AIRBUS, WHITE, NAVY, BOEING, AIRBUS]), 1):
-    c = ws1.cell(row=4, column=col, value=val)
-    c.font = font(bold=True, size=11, color=WHITE if fc != WHITE else SLATE)
-    c.fill = fill(fc)
-    c.alignment = align("center")
-
-scorecard = [
-    ("Deliveries YTD",   B["deliveries_ytd"],  A["deliveries_ytd"],  "Orders YTD",      B["orders_ytd"],     A["orders_ytd"]),
-    ("Total Backlog",    B["backlog"],          A["backlog"],          "Backlog (years)", B["backlog_years"],  A["backlog_years"]),
-    ("737 MAX Deliv.",   B["models"].get("737 MAX",0), A["models"].get("A320neo",0), "Wide-body Deliv.", B["models"].get("787",0)+B["models"].get("777",0), A["models"].get("A350",0)+A["models"].get("A330",0)),
-    ("BA Stock Price",   f"${Bs.get('price','N/A')}", f"€{As.get('price','N/A')}", "Stock Chg Today", f"{Bs.get('change_pct',0):+.2f}%", f"{As.get('change_pct',0):+.2f}%"),
+# ── Historical headers ─────────────────────────────────────────────────────────
+HIST_HEADERS = [
+    "Report Month", "Report Date",
+    "Boeing Deliveries YTD", "Boeing Orders YTD", "Boeing Backlog", "Boeing Backlog Years",
+    "Boeing 737MAX YTD", "Boeing 787 YTD", "Boeing 777 YTD", "Boeing 767 YTD",
+    "Airbus Deliveries YTD", "Airbus Orders YTD", "Airbus Backlog", "Airbus Backlog Years",
+    "Airbus A320neo YTD", "Airbus A350 YTD", "Airbus A220 YTD", "Airbus A330 YTD",
+    "BA Price (USD)", "BA Change %", "BA 52w High", "BA 52w Low",
+    "AIR.PA Price (EUR)", "AIR.PA Change %", "AIR.PA 52w High", "AIR.PA 52w Low",
+    "Data Source", "Notes",
 ]
 
-for i, (m1, b1, a1, m2, b2, a2) in enumerate(scorecard, 5):
-    ws1.row_dimensions[i].height = 22
-    bg = OFFWHITE if i % 2 == 0 else WHITE
-    for col, (val, bc) in enumerate([(m1, OFFWHITE), (b1, BLIGHT), (a1, ALIGHT), ("", WHITE), (m2, OFFWHITE), (b2, BLIGHT), (a2, ALIGHT)], 1):
-        c = ws1.cell(row=i, column=col, value=val)
-        c.font = font(bold=col in [2, 3, 6, 7], size=11, color=BOEING if col == 2 else AIRBUS if col == 3 else BOEING if col == 6 else AIRBUS if col == 7 else "1E293B")
-        c.fill = fill(bc)
-        c.alignment = align("center")
+def new_data_row():
+    return [
+        d["reportMonth"],
+        d["reportDate"],
+        B["deliveries_ytd"],
+        B["orders_ytd"],
+        B["backlog"],
+        B["backlog_years"],
+        B["models"].get("737 MAX", 0),
+        B["models"].get("787", 0),
+        B["models"].get("777", 0),
+        B["models"].get("767", 0),
+        A["deliveries_ytd"],
+        A["orders_ytd"],
+        A["backlog"],
+        A["backlog_years"],
+        A["models"].get("A320neo", 0),
+        A["models"].get("A350", 0),
+        A["models"].get("A220", 0),
+        A["models"].get("A330", 0),
+        Bs.get("price", 0),
+        Bs.get("change_pct", 0),
+        Bs.get("week52_high", 0),
+        Bs.get("week52_low", 0),
+        As.get("price", 0),
+        As.get("change_pct", 0),
+        As.get("week52_high", 0),
+        As.get("week52_low", 0),
+        d.get("dataSource", "fallback_verified"),
+        "",
+    ]
+
+# ── Load or create workbook ────────────────────────────────────────────────────
+if os.path.exists(ARCHIVE_PATH):
+    print(f"  [excel] loading existing archive: {ARCHIVE_PATH}")
+    wb = load_workbook(ARCHIVE_PATH)
+else:
+    print(f"  [excel] creating new archive: {ARCHIVE_PATH}")
+    wb = Workbook()
+    # Remove default sheet
+    wb.remove(wb.active)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SHEET 1: Historical Data (append-only)
+# ═══════════════════════════════════════════════════════════════════════════════
+if "Historical Data" in wb.sheetnames:
+    ws1 = wb["Historical Data"]
+    # Check if this month already exists — don't duplicate
+    existing_months = [ws1.cell(row=r, column=1).value for r in range(2, ws1.max_row + 1)]
+    if d["reportMonth"] in existing_months:
+        print(f"  [excel] {d['reportMonth']} already in archive — updating row")
+        for r in range(2, ws1.max_row + 1):
+            if ws1.cell(row=r, column=1).value == d["reportMonth"]:
+                new_row = new_data_row()
+                for ci, val in enumerate(new_row, 1):
+                    c = ws1.cell(row=r, column=ci, value=val)
+                    style_cell(c, h_align="center", bg=OFFWHITE if r % 2 == 0 else WHITE)
+                break
+    else:
+        print(f"  [excel] appending new row for {d['reportMonth']}")
+        next_row = ws1.max_row + 1
+        new_row = new_data_row()
+        for ci, val in enumerate(new_row, 1):
+            c = ws1.cell(row=next_row, column=ci, value=val)
+            bg = OFFWHITE if next_row % 2 == 0 else WHITE
+            # Color Boeing cols blue, Airbus cols teal, stock cols slate
+            col_color = "1E293B"
+            if 3 <= ci <= 10:   col_color = BOEING
+            elif 11 <= ci <= 18: col_color = AIRBUS
+            elif 19 <= ci <= 22: col_color = "1A5276"
+            elif 23 <= ci <= 26: col_color = "1A5276"
+            style_cell(c, h_align="center", bg=bg, color=col_color)
+else:
+    ws1 = wb.create_sheet("Historical Data", 0)
+    ws1.sheet_view.showGridLines = False
+
+    # Title
+    ws1.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(HIST_HEADERS))
+    tc = ws1.cell(row=1, column=1, value="EuroAir Intel — Manufacturer Historical Archive")
+    tc.font = font(bold=True, size=16, color=WHITE)
+    tc.fill = fill(NAVY)
+    tc.alignment = align("center")
+    ws1.row_dimensions[1].height = 36
+
+    # Header row
+    ws1.row_dimensions[2].height = 28
+    col_groups = {
+        (1,2): NAVY,
+        (3,10): BOEING,
+        (11,18): AIRBUS,
+        (19,22): "1A3A5C",
+        (23,26): "0A3D5C",
+        (27,28): SLATE,
+    }
+    for ci, h in enumerate(HIST_HEADERS, 1):
+        c = ws1.cell(row=2, column=ci, value=h)
+        bg = NAVY
+        for (lo, hi), col in col_groups.items():
+            if lo <= ci <= hi:
+                bg = col
+                break
+        c.font = font(bold=True, size=9, color=WHITE)
+        c.fill = fill(bg)
+        c.alignment = align("center", wrap=True)
         c.border = border_thin()
 
+    # First data row
+    new_row_data = new_data_row()
+    ws1.row_dimensions[3].height = 20
+    for ci, val in enumerate(new_row_data, 1):
+        c = ws1.cell(row=3, column=ci, value=val)
+        col_color = "1E293B"
+        if 3 <= ci <= 10:    col_color = BOEING
+        elif 11 <= ci <= 18: col_color = AIRBUS
+        style_cell(c, h_align="center", bg=OFFWHITE, color=col_color)
+
+    # Column widths
+    col_widths = [14, 12] + [14]*16 + [12]*8 + [16, 18]
+    for ci, w in enumerate(col_widths, 1):
+        ws1.column_dimensions[get_column_letter(ci)].width = w
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SHEET 2: Monthly Deliveries (this month's detail + running YTD chart)
+# ═══════════════════════════════════════════════════════════════════════════════
+sheet_name2 = f"Deliveries {d['reportMonth']}"
+if sheet_name2 in wb.sheetnames:
+    del wb[sheet_name2]
+ws2 = wb.create_sheet(sheet_name2)
+ws2.sheet_view.showGridLines = False
+
+for col, w in enumerate([14, 16, 16, 16, 16], 1):
+    ws2.column_dimensions[get_column_letter(col)].width = w
+
+# Title
+ws2.merge_cells("A1:E2")
+t = ws2.cell(row=1, column=1, value=f"Monthly Deliveries 2026 YTD — {d['reportMonth']}")
+t.font = font(bold=True, size=15, color=WHITE)
+t.fill = fill(NAVY)
+t.alignment = align("center")
+ws2.row_dimensions[1].height = 32
+
+# Headers
+headers2 = ["Month", "Boeing", "Airbus", "Combined", "Boeing Lead"]
+hcols = [NAVY, BOEING, AIRBUS, SLATE, NAVY]
+for ci, (h, hc) in enumerate(zip(headers2, hcols), 1):
+    c = ws2.cell(row=3, column=ci, value=h)
+    c.font = font(bold=True, size=10, color=WHITE)
+    c.fill = fill(hc)
+    c.alignment = align("center")
+    c.border = border_thin()
+
+months    = d.get("chartLabels", [])
+b_series  = d.get("boeingMonthlySeries", [])
+a_series  = d.get("airbusMonthlySeries", [])
+
+for i, (m, bv, av) in enumerate(zip(months, b_series, a_series), 4):
+    ws2.row_dimensions[i].height = 20
+    bg = OFFWHITE if i % 2 == 0 else WHITE
+    lead = bv - av
+    for ci, (val, col) in enumerate(zip(
+        [m, bv, av, bv+av, lead],
+        ["1E293B", BOEING, AIRBUS, SLATE, GREEN if lead >= 0 else RED]
+    ), 1):
+        c = ws2.cell(row=i, column=ci, value=val)
+        style_cell(c, h_align="center", bg=bg, color=col,
+                   bold=(ci in [2,3] and val > 0))
+
+# Totals
+tr = len(months) + 4
+ws2.row_dimensions[tr].height = 24
+totals = [sum(b_series), sum(a_series)]
+for ci, (val, col) in enumerate(zip(
+    ["TOTAL YTD", totals[0], totals[1], sum(totals), totals[0]-totals[1]],
+    [WHITE, "90CAFF", "90E0FF", WHITE, "90FFB0" if totals[0]>=totals[1] else "FFB0B0"]
+), 1):
+    c = ws2.cell(row=tr, column=ci, value=val)
+    style_cell(c, bold=True, h_align="center", bg=NAVY, color=col)
+
+# Chart
+chart2 = BarChart()
+chart2.type = "col"
+chart2.grouping = "clustered"
+chart2.title = f"Monthly Deliveries — {d['reportMonth']}"
+chart2.y_axis.title = "Aircraft Delivered"
+chart2.style = 10
+chart2.width = 22
+chart2.height = 14
+data_r  = Reference(ws2, min_col=2, max_col=3, min_row=3, max_row=3+len(months))
+cats_r  = Reference(ws2, min_col=1, min_row=4, max_row=3+len(months))
+chart2.add_data(data_r, titles_from_data=True)
+chart2.set_categories(cats_r)
+chart2.series[0].graphicalProperties.solidFill = BOEING
+chart2.series[1].graphicalProperties.solidFill = "00AEEF"
+ws2.add_chart(chart2, "G3")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SHEET 3: Latest Month Summary
+# ═══════════════════════════════════════════════════════════════════════════════
+sheet_name3 = f"Summary {d['reportMonth']}"
+if sheet_name3 in wb.sheetnames:
+    del wb[sheet_name3]
+ws3 = wb.create_sheet(sheet_name3)
+ws3.sheet_view.showGridLines = False
+
+for col, w in enumerate([24, 18, 18], 1):
+    ws3.column_dimensions[get_column_letter(col)].width = w
+
+ws3.merge_cells("A1:C2")
+t3 = ws3.cell(row=1, column=1, value=f"EuroAir Intel — {d['reportMonth']} Summary")
+t3.font = font(bold=True, size=15, color=WHITE)
+t3.fill = fill(NAVY)
+t3.alignment = align("center")
+ws3.row_dimensions[1].height = 32
+
+# Headers
+for ci, (h, hc) in enumerate(zip(["Metric", "Boeing", "Airbus"], [NAVY, BOEING, AIRBUS]), 1):
+    c = ws3.cell(row=3, column=ci, value=h)
+    c.font = font(bold=True, size=10, color=WHITE)
+    c.fill = fill(hc)
+    c.alignment = align("center")
+    c.border = border_thin()
+
+summary_rows = [
+    ("Deliveries YTD",       B["deliveries_ytd"],               A["deliveries_ytd"]),
+    ("Gross Orders YTD",     B["orders_ytd"],                   A["orders_ytd"]),
+    ("Total Backlog (ac)",   B["backlog"],                      A["backlog"]),
+    ("Backlog Runway (yrs)", B["backlog_years"],                A["backlog_years"]),
+    ("Narrowbody Deliv.",    B["models"].get("737 MAX", 0),     A["models"].get("A320neo", 0)),
+    ("Widebody Deliv.",      B["models"].get("787",0)+B["models"].get("777",0), A["models"].get("A350",0)+A["models"].get("A330",0)),
+    ("Stock Price",          f"${Bs.get('price','N/A')} USD",   f"€{As.get('price','N/A')} EUR"),
+    ("Stock Change Today",   f"{float(Bs.get('change_pct',0)):+.2f}%", f"{float(As.get('change_pct',0)):+.2f}%"),
+    ("52-Week High",         f"${Bs.get('week52_high','N/A')}", f"€{As.get('week52_high','N/A')}"),
+    ("52-Week Low",          f"${Bs.get('week52_low','N/A')}",  f"€{As.get('week52_low','N/A')}"),
+]
+
+for i, (metric, bv, av) in enumerate(summary_rows, 4):
+    ws3.row_dimensions[i].height = 22
+    bg = OFFWHITE if i % 2 == 0 else WHITE
+    for ci, (val, col) in enumerate(zip([metric, bv, av], ["1E293B", BOEING, AIRBUS]), 1):
+        c = ws3.cell(row=i, column=ci, value=val)
+        style_cell(c, h_align="center" if ci > 1 else "left", bg=bg, color=col, bold=ci > 1)
+
 # Source note
-ws1.row_dimensions[10].height = 18
-ws1.merge_cells("A10:G10")
-src = ws1.cell(row=10, column=1, value=f"Source: Boeing.com (official monthly XLS) · Airbus.com (official monthly XLS) · Yahoo Finance (yfinance). Generated {d['reportDate']}.")
+src_row = len(summary_rows) + 5
+ws3.merge_cells(f"A{src_row}:C{src_row}")
+src = ws3.cell(row=src_row, column=1, value=f"Source: Boeing.com · Airbus.com · Yahoo Finance · Generated {d['reportDate']}")
 src.font = font(size=8, color=SLATE, italic=True)
 src.fill = fill(OFFWHITE)
 src.alignment = align("left")
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SHEET 2: Monthly Deliveries
-# ═══════════════════════════════════════════════════════════════════════════════
-ws2 = wb.create_sheet("Monthly Deliveries")
-ws2.sheet_view.showGridLines = False
-set_col_width(ws2, 1, 14)
-set_col_width(ws2, 2, 16)
-set_col_width(ws2, 3, 16)
-set_col_width(ws2, 4, 16)
-set_col_width(ws2, 5, 16)
-
-title_block(ws2, 1, "Monthly Deliveries 2026 YTD", f"Boeing vs Airbus  ·  {d['reportMonth']}", span=5)
-
-header_row(ws2, 4, ["Month", "Boeing", "Airbus", "Combined", "Boeing Lead (+/-)"],
-           colors=[NAVY, BOEING, AIRBUS, SLATE, NAVY])
-
-months = d.get("chartLabels", [])
-b_series = d.get("boeingMonthlySeries", [])
-a_series = d.get("airbusMonthlySeries", [])
-
-for i, (m, bv, av) in enumerate(zip(months, b_series, a_series), 5):
-    ws2.row_dimensions[i].height = 20
-    bg = OFFWHITE if i % 2 == 0 else WHITE
-    combined = bv + av
-    lead = bv - av
-    data_row(ws2, i, [m, bv, av, combined, lead],
-             bg=bg,
-             aligns=["center","center","center","center","center"],
-             colors=["1E293B", BOEING, AIRBUS, SLATE, GREEN if lead >= 0 else RED])
-
-# Totals row
-tr = len(months) + 5
-ws2.row_dimensions[tr].height = 24
-total_b = sum(b_series)
-total_a = sum(a_series)
-data_row(ws2, tr,
-         ["TOTAL YTD", total_b, total_a, total_b+total_a, total_b-total_a],
-         bg=NAVY, bold=True,
-         aligns=["center","center","center","center","center"],
-         colors=[WHITE, "90CAFF", "90E0FF", WHITE, "90FFB0" if total_b >= total_a else "FFB0B0"])
-
-# Chart
-chart = BarChart()
-chart.type = "col"
-chart.grouping = "clustered"
-chart.title = f"Monthly Deliveries 2026 YTD"
-chart.y_axis.title = "Aircraft Delivered"
-chart.x_axis.title = "Month"
-chart.style = 10
-chart.width = 22
-chart.height = 14
-chart.shape = 4
-
-data_ref = Reference(ws2, min_col=2, max_col=3, min_row=4, max_row=4+len(months))
-cats_ref = Reference(ws2, min_col=1, min_row=5, max_row=4+len(months))
-chart.add_data(data_ref, titles_from_data=True)
-chart.set_categories(cats_ref)
-chart.series[0].graphicalProperties.solidFill = BOEING
-chart.series[1].graphicalProperties.solidFill = "00AEEF"
-ws2.add_chart(chart, f"G4")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SHEET 3: Model Breakdown
-# ═══════════════════════════════════════════════════════════════════════════════
-ws3 = wb.create_sheet("Model Breakdown")
-ws3.sheet_view.showGridLines = False
-for col, w in enumerate([20, 16, 16, 16], 1):
-    set_col_width(ws3, col, w)
-
-title_block(ws3, 1, "Deliveries by Aircraft Model — 2026 YTD", f"Boeing vs Airbus  ·  {d['reportMonth']}", span=4)
-
-# Boeing models
-ws3.row_dimensions[4].height = 22
-header_row(ws3, 4, ["Boeing Model", "Deliveries YTD", "Backlog", "Backlog/Deliv Ratio"],
-           colors=[BOEING, BOEING, BOEING, BOEING])
-b_models = B.get("models", {})
-b_backlog = B.get("backlog_by_model", {})
-for i, (model, deliv) in enumerate(b_models.items(), 5):
-    bl = b_backlog.get(model, 0)
-    ratio = f"={get_column_letter(3)}{i}/{get_column_letter(2)}{i}" if deliv > 0 else "N/A"
-    ws3.row_dimensions[i].height = 20
-    bg = BLIGHT if i % 2 == 0 else WHITE
-    data_row(ws3, i, [model, deliv, bl, bl/deliv if deliv > 0 else 0],
-             bg=bg, aligns=["left","center","center","center"],
-             colors=["1E293B", BOEING, NAVY, SLATE])
-    ws3.cell(row=i, column=4).number_format = "0.0x"
-
-# Spacer
-ws3.row_dimensions[10].height = 14
-
-# Airbus models
-ws3.row_dimensions[11].height = 22
-header_row(ws3, 11, ["Airbus Model", "Deliveries YTD", "Backlog", "Backlog/Deliv Ratio"],
-           colors=[AIRBUS, AIRBUS, AIRBUS, AIRBUS])
-a_models = A.get("models", {})
-a_backlog = A.get("backlog_by_model", {})
-for i, (model, deliv) in enumerate(a_models.items(), 12):
-    bl = a_backlog.get(model, 0)
-    ws3.row_dimensions[i].height = 20
-    bg = ALIGHT if i % 2 == 0 else WHITE
-    data_row(ws3, i, [model, deliv, bl, bl/deliv if deliv > 0 else 0],
-             bg=bg, aligns=["left","center","center","center"],
-             colors=["1E293B", AIRBUS, NAVY, SLATE])
-    ws3.cell(row=i, column=4).number_format = "0.0x"
-
-# Pie chart — Boeing model share
-pie_b = PieChart()
-pie_b.title = "Boeing Delivery Mix"
-pie_b.style = 10
-pie_b.width = 14
-pie_b.height = 10
-b_vals_ref   = Reference(ws3, min_col=2, min_row=5, max_row=5+len(b_models)-1)
-b_labels_ref = Reference(ws3, min_col=1, min_row=5, max_row=5+len(b_models)-1)
-pie_b.add_data(b_vals_ref)
-pie_b.set_categories(b_labels_ref)
-ws3.add_chart(pie_b, "F4")
-
-# Pie chart — Airbus model share
-pie_a = PieChart()
-pie_a.title = "Airbus Delivery Mix"
-pie_a.style = 10
-pie_a.width = 14
-pie_a.height = 10
-a_vals_ref   = Reference(ws3, min_col=2, min_row=12, max_row=12+len(a_models)-1)
-a_labels_ref = Reference(ws3, min_col=1, min_row=12, max_row=12+len(a_models)-1)
-pie_a.add_data(a_vals_ref)
-pie_a.set_categories(a_labels_ref)
-ws3.add_chart(pie_a, "F20")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SHEET 4: Backlog Analysis
-# ═══════════════════════════════════════════════════════════════════════════════
-ws4 = wb.create_sheet("Backlog Analysis")
-ws4.sheet_view.showGridLines = False
-for col, w in enumerate([22, 16, 16, 16, 16], 1):
-    set_col_width(ws4, col, w)
-
-title_block(ws4, 1, "Order Backlog Analysis", f"Boeing vs Airbus  ·  {d['reportMonth']}", span=5)
-
-header_row(ws4, 4, ["Programme", "Boeing Backlog", "Airbus Backlog", "Boeing %", "Airbus %"],
-           colors=[NAVY, BOEING, AIRBUS, BOEING, AIRBUS])
-
-b_bl = B.get("backlog_by_model", {})
-a_bl = A.get("backlog_by_model", {})
-b_total_bl = B["backlog"]
-a_total_bl = A["backlog"]
-
-all_programmes = list(set(list(b_bl.keys()) + list(a_bl.keys())))
-for i, prog in enumerate(all_programmes, 5):
-    bv = b_bl.get(prog, 0)
-    av = a_bl.get(prog, 0)
-    ws4.row_dimensions[i].height = 20
-    bg = OFFWHITE if i % 2 == 0 else WHITE
-    b_pct = bv / b_total_bl if b_total_bl > 0 else 0
-    a_pct = av / a_total_bl if a_total_bl > 0 else 0
-    data_row(ws4, i, [prog, bv if bv else "—", av if av else "—", b_pct if bv else "—", a_pct if av else "—"],
-             bg=bg, aligns=["left","center","center","center","center"],
-             colors=["1E293B", BOEING, AIRBUS, BOEING, AIRBUS])
-    if bv: ws4.cell(row=i, column=4).number_format = "0.0%"
-    if av: ws4.cell(row=i, column=5).number_format = "0.0%"
-
-# Totals
-tr = len(all_programmes) + 5
-ws4.row_dimensions[tr].height = 24
-data_row(ws4, tr, ["TOTAL BACKLOG", b_total_bl, a_total_bl, "100%", "100%"],
-         bg=NAVY, bold=True, aligns=["left","center","center","center","center"],
-         colors=[WHITE, "90CAFF", "90E0FF", WHITE, WHITE])
-
-# Runway row
-rr = tr + 1
-ws4.row_dimensions[rr].height = 22
-data_row(ws4, rr, ["Production Runway (years)", B["backlog_years"], A["backlog_years"], "", ""],
-         bg=GOLD, bold=True, aligns=["left","center","center","center","center"],
-         colors=[NAVY, NAVY, NAVY, NAVY, NAVY])
-
-# Bar chart comparing backlogs
-chart4 = BarChart()
-chart4.type = "bar"
-chart4.grouping = "clustered"
-chart4.title = "Backlog by Programme"
-chart4.y_axis.title = "Aircraft on Order"
-chart4.style = 10
-chart4.width = 22
-chart4.height = 14
-data4  = Reference(ws4, min_col=2, max_col=3, min_row=4, max_row=4+len(all_programmes))
-cats4  = Reference(ws4, min_col=1, min_row=5, max_row=4+len(all_programmes))
-chart4.add_data(data4, titles_from_data=True)
-chart4.set_categories(cats4)
-chart4.series[0].graphicalProperties.solidFill = BOEING
-chart4.series[1].graphicalProperties.solidFill = "00AEEF"
-ws4.add_chart(chart4, "G4")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SHEET 5: Stock Data
-# ═══════════════════════════════════════════════════════════════════════════════
-ws5 = wb.create_sheet("Stock Data")
-ws5.sheet_view.showGridLines = False
-for col, w in enumerate([22, 16, 16], 1):
-    set_col_width(ws5, col, w)
-
-title_block(ws5, 1, "Stock Performance — BA vs AIR.PA", f"As of {Bs.get('as_of', d['reportDate'])}  ·  Source: Yahoo Finance", span=3)
-
-header_row(ws5, 4, ["Metric", "Boeing (BA)", "Airbus (AIR.PA)"],
-           colors=[NAVY, BOEING, AIRBUS])
-
-stock_rows = [
-    ("Current Price",    f"${Bs.get('price','N/A')}",       f"€{As.get('price','N/A')}"),
-    ("Daily Change $",   f"${Bs.get('change_abs',0):+.2f}", f"€{As.get('change_abs',0):+.2f}"),
-    ("Daily Change %",   f"{Bs.get('change_pct',0):+.2f}%", f"{As.get('change_pct',0):+.2f}%"),
-    ("52-Week High",     f"${Bs.get('week52_high','N/A')}", f"€{As.get('week52_high','N/A')}"),
-    ("52-Week Low",      f"${Bs.get('week52_low','N/A')}",  f"€{As.get('week52_low','N/A')}"),
-    ("Currency",         "USD (NYSE)",                        "EUR (Euronext Paris)"),
-    ("Data Date",        Bs.get("as_of", d["reportDate"]),   As.get("as_of", d["reportDate"])),
-]
-
-for i, (metric, bval, aval) in enumerate(stock_rows, 5):
-    ws5.row_dimensions[i].height = 22
-    bg = OFFWHITE if i % 2 == 0 else WHITE
-    data_row(ws5, i, [metric, bval, aval],
-             bg=bg, aligns=["left","center","center"],
-             colors=["1E293B", BOEING, AIRBUS])
-
-# Source note
-ws5.row_dimensions[13].height = 18
-ws5.merge_cells("A13:C13")
-src5 = ws5.cell(row=13, column=1, value="Source: Yahoo Finance via yfinance library. Prices reflect most recent trading day close. Not financial advice.")
-src5.font = font(size=8, color=SLATE, italic=True)
-src5.fill = fill(OFFWHITE)
-src5.alignment = align("left")
-
 # ── Save ───────────────────────────────────────────────────────────────────────
-os.makedirs("output", exist_ok=True)
-fname = f"output/Manufacturer_Data_{d['reportDate']}.xlsx"
-wb.save(fname)
-print(f"✓ Saved {fname}")
+wb.save(ARCHIVE_PATH)
+print(f"✓ Saved archive: {ARCHIVE_PATH}")
+
+# Also save a dated copy to output/ for email attachment
+dated_copy = f"output/Manufacturer_Data_{d['reportDate']}.xlsx"
+import shutil
+shutil.copy(ARCHIVE_PATH, dated_copy)
+print(f"✓ Copied to: {dated_copy}")
