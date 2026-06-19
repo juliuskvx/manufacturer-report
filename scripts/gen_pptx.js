@@ -11,7 +11,7 @@ const pptx = new PptxGenJS();
 pptx.layout = "LAYOUT_16x9";
 pptx.title = `EuroAir Intel — Manufacturer Intelligence Report ${reportMonth}`;
 
-// ── Palette ──────────────────────────────────────────────────────────────────
+// ── Palette ───────────────────────────────────────────────────────────────────
 const C = {
   navy:    "0D1F3C",
   blue:    "1B3F6E",
@@ -23,169 +23,245 @@ const C = {
   lgray:   "E2E8F0",
   text:    "1E293B",
   ice:     "D6E8FA",
-  boeing:  "0033A0",   // Boeing brand blue
-  airbus:  "00AEEF",   // Airbus brand cyan
-  boeingL: "4B9CD3",
-  airbusD: "00205B",
+  boeing:  "0033A0",
+  airbus:  "005B8E",
+  bLight:  "4B9CD3",
+  aLight:  "00AEEF",
+  green:   "16A34A",
+  red:     "DC2626",
 };
 
 const serif = "Cambria";
 const sans  = "Calibri";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-function header(slide, title, sub) {
-  slide.addShape(pptx.shapes.RECTANGLE, {x:0, y:0, w:10, h:0.8, fill:{color:C.navy}});
-  slide.addText(title, {x:0.4, y:0.05, w:7.2, h:0.7, fontSize:20, bold:true, color:C.white, fontFace:serif, valign:"middle"});
-  if (sub) slide.addText(sub, {x:7.3, y:0.05, w:2.5, h:0.7, fontSize:10, color:C.ice, fontFace:sans, valign:"middle", align:"right"});
-  slide.addText("Boeing & Airbus Official Data · EuroAir Intel", {x:0, y:5.35, w:10, h:0.28, fontSize:9, color:C.slate, fontFace:sans, align:"center"});
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function footer(slide) {
+  slide.addShape(pptx.shapes.RECTANGLE, {x:0, y:5.38, w:10, h:0.245, fill:{color:C.navy}});
+  slide.addText("Boeing.com · Airbus.com · Yahoo Finance  ·  EuroAir Intel Manufacturer Report  ·  " + reportMonth,
+    {x:0.3, y:5.39, w:9.4, h:0.22, fontSize:8, color:C.ice, fontFace:sans, align:"center", valign:"middle"});
 }
 
-function card(slide, x, y, w, h, col) {
-  slide.addShape(pptx.shapes.RECTANGLE, {x, y, w, h, fill:{color:col||C.white},
-    shadow:{type:"outer", blur:3, offset:2, angle:45, color:"CBD5E1", opacity:0.25}});
+function header(slide, title, sub) {
+  slide.addShape(pptx.shapes.RECTANGLE, {x:0, y:0, w:10, h:0.78, fill:{color:C.navy}});
+  slide.addShape(pptx.shapes.RECTANGLE, {x:0, y:0.78, w:10, h:0.04, fill:{color:C.gold}});
+  slide.addText(title, {x:0.4, y:0.05, w:7.0, h:0.7, fontSize:21, bold:true, color:C.white, fontFace:serif, valign:"middle"});
+  if (sub) slide.addText(sub, {x:7.2, y:0.05, w:2.6, h:0.7, fontSize:10, color:C.ice, fontFace:sans, valign:"middle", align:"right"});
+  footer(slide);
+}
+
+function card(slide, x, y, w, h, fill, shadow) {
+  slide.addShape(pptx.shapes.RECTANGLE, {x, y, w, h,
+    fill:{color: fill || C.white},
+    shadow: shadow !== false ? {type:"outer", blur:5, offset:2, angle:45, color:"94A3B8", opacity:0.2} : undefined
+  });
+}
+
+function statCard(slide, x, y, w, label, value, unit, accentCol, dark) {
+  const h = 1.45;
+  card(slide, x, y, w, h, dark ? accentCol : C.white);
+  slide.addShape(pptx.shapes.RECTANGLE, {x, y, w:w, h:0.05, fill:{color:accentCol}});
+  slide.addText(label.toUpperCase(), {x:x+0.18, y:y+0.14, w:w-0.36, h:0.28, fontSize:8.5, color: dark ? C.ice : C.slate, fontFace:sans, charSpacing:0.8});
+  slide.addText(value, {x:x+0.18, y:y+0.44, w:w-0.36, h:0.65, fontSize: String(value).length > 8 ? 22 : 28, bold:true, color: dark ? C.gold : C.text, fontFace:serif, valign:"middle"});
+  if (unit) slide.addText(unit, {x:x+0.18, y:y+1.16, w:w-0.36, h:0.24, fontSize:9, color: dark ? C.aLight : C.slate, fontFace:sans});
 }
 
 function num(n) { return Number(n).toLocaleString(); }
-function pct(n) {
-  const v = Number(n);
-  return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
-}
+function chg(n) { const v = Number(n); return (v >= 0 ? "▲ +" : "▼ ") + Math.abs(v).toFixed(2) + "%"; }
+function chgColor(n) { return Number(n) >= 0 ? C.green : C.red; }
 
-// ── Data shortcuts ────────────────────────────────────────────────────────────
 const B  = d.boeing;
 const A  = d.airbus;
 const Bs = B.stock || {};
 const As = A.stock || {};
 
-// ── SLIDE 1: Title ────────────────────────────────────────────────────────────
+// ── SLIDE 1: Title ─────────────────────────────────────────────────────────────
 const s1 = pptx.addSlide();
 s1.background = {color:C.navy};
 
-// Split background — Boeing left, Airbus right
-s1.addShape(pptx.shapes.RECTANGLE, {x:5.0, y:0, w:5.0, h:5.625, fill:{color:C.airbusD}});
-s1.addShape(pptx.shapes.RECTANGLE, {x:4.92, y:0, w:0.16, h:5.625, fill:{color:C.gold}});
+// Left panel
+s1.addShape(pptx.shapes.RECTANGLE, {x:0, y:0, w:5.8, h:5.625, fill:{color:C.navy}});
+// Right panel — dark blue
+s1.addShape(pptx.shapes.RECTANGLE, {x:5.8, y:0, w:4.2, h:5.625, fill:{color:C.blue}});
+// Gold vertical divider
+s1.addShape(pptx.shapes.RECTANGLE, {x:5.73, y:0, w:0.14, h:5.625, fill:{color:C.gold}});
 
-// Boeing side
-s1.addText("Boeing", {x:0.55, y:0.7, w:4.2, h:1.0, fontSize:46, bold:true, color:C.white, fontFace:serif});
-s1.addText("vs", {x:0.55, y:1.65, w:4.2, h:0.6, fontSize:22, color:C.gold, fontFace:serif, italic:true});
-s1.addText("Airbus", {x:0.55, y:2.2, w:4.2, h:1.0, fontSize:46, bold:true, color:C.airbus, fontFace:serif});
-s1.addText("Manufacturer\nIntelligence Report", {x:0.55, y:3.3, w:4.2, h:0.9, fontSize:13, color:C.ice, fontFace:sans, lineSpacingMultiple:1.3});
-s1.addText(reportMonth, {x:0.55, y:4.3, w:4.2, h:0.4, fontSize:11, color:C.slate, fontFace:sans});
+// Tag line
+s1.addText("EUROAIR INTEL", {x:0.55, y:0.55, w:5.0, h:0.35, fontSize:11, color:C.gold, fontFace:sans, charSpacing:4, bold:true});
+// Main title
+s1.addText("Manufacturer", {x:0.55, y:0.95, w:5.0, h:0.9,  fontSize:50, bold:true, color:C.white, fontFace:serif});
+s1.addText("Intelligence", {x:0.55, y:1.82, w:5.0, h:0.9,  fontSize:50, bold:true, color:C.white, fontFace:serif});
+s1.addText("Report",       {x:0.55, y:2.69, w:5.0, h:0.9,  fontSize:50, bold:true, color:C.aLight, fontFace:serif});
+s1.addText(reportMonth,    {x:0.55, y:3.72, w:5.0, h:0.4,  fontSize:14, color:C.ice, fontFace:sans});
+s1.addText("Boeing  vs  Airbus",  {x:0.55, y:4.22, w:5.0, h:0.38, fontSize:13, color:C.gold, fontFace:serif, italic:true});
 
-// Airbus side
-s1.addText("Orders · Deliveries\nBacklog · Stock", {x:5.2, y:1.6, w:4.5, h:1.5, fontSize:22, bold:true, color:C.white, fontFace:serif, align:"center", lineSpacingMultiple:1.5});
-s1.addText("Monthly intelligence briefing\nEuroAir Intel", {x:5.2, y:4.0, w:4.5, h:0.8, fontSize:11, color:C.ice, fontFace:sans, align:"center", lineSpacingMultiple:1.4});
+// Right panel content
+s1.addText("INSIDE THIS REPORT", {x:6.0, y:0.7, w:3.6, h:0.3, fontSize:9, color:C.gold, fontFace:sans, charSpacing:2, bold:true});
+const sections = ["Head-to-Head Scorecard", "Monthly Deliveries 2026", "Deliveries by Aircraft Model", "Order Backlog by Programme", "Stock Performance (30 days)", "Orders & Book-to-Bill Intelligence", "Data Archive (Excel attached)"];
+sections.forEach((s, i) => {
+  s1.addText(`${i+1}.  ${s}`, {x:6.0, y:1.1+i*0.55, w:3.7, h:0.42, fontSize:10.5, color: i===6 ? C.gold : C.ice, fontFace:sans, italic: i===6});
+});
 
-// Bottom bar
-s1.addShape(pptx.shapes.RECTANGLE, {x:0, y:5.15, w:10, h:0.475, fill:{color:C.blue}});
-s1.addText(`DATA AS OF ${asOf.toUpperCase()} · SOURCES: BOEING.COM · AIRBUS.COM · YAHOO FINANCE`, {x:0.4, y:5.2, w:9, h:0.35, fontSize:9, color:C.ice, fontFace:sans, charSpacing:1.5});
+// Bottom strip
+s1.addShape(pptx.shapes.RECTANGLE, {x:0, y:5.18, w:10, h:0.445, fill:{color:"060E1E"}});
+s1.addText(`Data as of ${asOf}  ·  Sources: Boeing.com · Airbus.com · Yahoo Finance  ·  Published 15th of each month`, {x:0.4, y:5.22, w:9.2, h:0.35, fontSize:9, color:C.slate, fontFace:sans, align:"center"});
 
-// ── SLIDE 2: Scorecard ────────────────────────────────────────────────────────
+// ── SLIDE 2: Head-to-Head Scorecard ───────────────────────────────────────────
 const s2 = pptx.addSlide();
 s2.background = {color:C.offW};
-header(s2, "Head-to-Head Scorecard — " + reportMonth, asOf);
+header(s2, "Head-to-Head Scorecard", reportMonth);
 
-// Column headers
-s2.addShape(pptx.shapes.RECTANGLE, {x:0.3,  y:0.88, w:4.45, h:0.38, fill:{color:C.boeing}});
-s2.addShape(pptx.shapes.RECTANGLE, {x:5.25, y:0.88, w:4.45, h:0.38, fill:{color:C.airbusD}});
-s2.addText("BOEING", {x:0.3,  y:0.88, w:4.45, h:0.38, fontSize:13, bold:true, color:C.white, fontFace:serif, align:"center", valign:"middle"});
-s2.addText("AIRBUS", {x:5.25, y:0.88, w:4.45, h:0.38, fontSize:13, bold:true, color:C.white, fontFace:serif, align:"center", valign:"middle"});
+// Boeing / Airbus column headers
+s2.addShape(pptx.shapes.RECTANGLE, {x:0.3,  y:0.92, w:4.3, h:0.46, fill:{color:C.boeing}});
+s2.addShape(pptx.shapes.RECTANGLE, {x:5.4,  y:0.92, w:4.3, h:0.46, fill:{color:C.airbus}});
+s2.addText("✈  BOEING", {x:0.3,  y:0.92, w:4.3, h:0.46, fontSize:14, bold:true, color:C.white, fontFace:serif, align:"center", valign:"middle"});
+s2.addText("✈  AIRBUS", {x:5.4,  y:0.92, w:4.3, h:0.46, fontSize:14, bold:true, color:C.white, fontFace:serif, align:"center", valign:"middle"});
+s2.addText("METRIC", {x:4.63, y:0.92, w:0.74, h:0.46, fontSize:7, color:C.slate, fontFace:sans, align:"center", valign:"middle"});
 
-const rows = [
-  {label:"Deliveries YTD",     b:num(B.deliveries_ytd),   a:num(A.deliveries_ytd),   winner: B.deliveries_ytd > A.deliveries_ytd ? "b" : "a"},
-  {label:"Gross Orders YTD",   b:num(B.orders_ytd),       a:num(A.orders_ytd),       winner: B.orders_ytd > A.orders_ytd ? "b" : "a"},
-  {label:"Total Backlog",      b:num(B.backlog)+" ac",    a:num(A.backlog)+" ac",    winner: B.backlog > A.backlog ? "b" : "a"},
-  {label:"Backlog Coverage",   b:B.backlog_years+"y",     a:A.backlog_years+"y",     winner: A.backlog_years > B.backlog_years ? "a" : "b"},
+const metrics = [
+  {label:"Deliveries YTD",   b:num(B.deliveries_ytd),   a:num(A.deliveries_ytd),   bw: B.deliveries_ytd > A.deliveries_ytd},
+  {label:"Gross Orders YTD", b:num(B.orders_ytd),       a:num(A.orders_ytd),       bw: B.orders_ytd > A.orders_ytd},
+  {label:"Total Backlog",    b:num(B.backlog)+" ac",    a:num(A.backlog)+" ac",    bw: B.backlog > A.backlog},
+  {label:"Backlog Runway",   b:B.backlog_years+"y",     a:A.backlog_years+"y",     bw: B.backlog_years > A.backlog_years},
 ];
 
-rows.forEach((row, i) => {
-  const y = 1.36 + i * 0.88;
-  // Boeing cell
-  card(s2, 0.3, y, 4.45, 0.75, row.winner==="b" ? "EEF4FF" : C.white);
-  if (row.winner==="b") s2.addShape(pptx.shapes.RECTANGLE, {x:0.3, y, w:0.06, h:0.75, fill:{color:C.gold}});
-  s2.addText(row.label, {x:0.5, y:y+0.04, w:4.1, h:0.3, fontSize:9.5, color:C.slate, fontFace:sans});
-  s2.addText(row.b, {x:0.5, y:y+0.34, w:4.1, h:0.36, fontSize:20, bold:true, color:C.boeing, fontFace:serif});
-  // Airbus cell
-  card(s2, 5.25, y, 4.45, 0.75, row.winner==="a" ? "E6F7FF" : C.white);
-  if (row.winner==="a") s2.addShape(pptx.shapes.RECTANGLE, {x:9.64, y, w:0.06, h:0.75, fill:{color:C.gold}});
-  s2.addText(row.label, {x:5.35, y:y+0.04, w:4.1, h:0.3, fontSize:9.5, color:C.slate, fontFace:sans});
-  s2.addText(row.a, {x:5.35, y:y+0.34, w:4.1, h:0.36, fontSize:20, bold:true, color:C.airbusD, fontFace:serif});
-  // Centre label
-  s2.addText(row.label.toUpperCase(), {x:4.76, y:y+0.22, w:0.48, h:0.3, fontSize:6.5, color:C.slate, fontFace:sans, align:"center", wrap:true});
+metrics.forEach((m, i) => {
+  const y = 1.48 + i * 0.9;
+  const bFill = m.bw ? "EEF3FF" : C.white;
+  const aFill = !m.bw ? "E6F4FF" : C.white;
+
+  card(s2, 0.3, y, 4.3, 0.75, bFill);
+  card(s2, 5.4, y, 4.3, 0.75, aFill);
+
+  // Gold winner bar
+  if (m.bw)  s2.addShape(pptx.shapes.RECTANGLE, {x:0.3, y, w:0.07, h:0.75, fill:{color:C.gold}});
+  if (!m.bw) s2.addShape(pptx.shapes.RECTANGLE, {x:9.63, y, w:0.07, h:0.75, fill:{color:C.gold}});
+
+  s2.addText(m.b, {x:0.5, y:y+0.1, w:4.0, h:0.55, fontSize:22, bold:true, color: m.bw ? C.boeing : C.slate, fontFace:serif, valign:"middle"});
+  s2.addText(m.a, {x:5.55, y:y+0.1, w:4.0, h:0.55, fontSize:22, bold:true, color: !m.bw ? C.airbus : C.slate, fontFace:serif, valign:"middle"});
+
+  // Centre metric label
+  s2.addText(m.label, {x:4.63, y:y+0.2, w:0.74, h:0.35, fontSize:7, color:C.slate, fontFace:sans, align:"center", wrap:true});
+  // Winner star
+  s2.addText(m.bw ? "★" : "★", {x: m.bw ? 4.4 : 4.85, y:y+0.18, w:0.22, h:0.35, fontSize:12, color:C.gold, fontFace:sans, align:"center"});
 });
 
 // ── SLIDE 3: Monthly Deliveries Chart ─────────────────────────────────────────
 const s3 = pptx.addSlide();
 s3.background = {color:C.white};
 header(s3, "Monthly Deliveries 2026 YTD — Boeing vs Airbus", asOf);
-s3.addImage({path:"output/chart_monthly.png", x:0.2, y:0.88, w:9.6, h:4.42});
 
-// ── SLIDE 4: Model Breakdown ──────────────────────────────────────────────────
+s3.addImage({path:"output/chart_monthly.png", x:0.25, y:0.9, w:9.5, h:4.38});
+
+// YTD totals callout bar
+s3.addShape(pptx.shapes.RECTANGLE, {x:0.25, y:5.0, w:4.65, h:0.32, fill:{color:C.boeing}});
+s3.addShape(pptx.shapes.RECTANGLE, {x:5.1,  y:5.0, w:4.65, h:0.32, fill:{color:C.airbus}});
+s3.addText(`Boeing YTD: ${num(B.deliveries_ytd)} aircraft delivered`, {x:0.25, y:5.0, w:4.65, h:0.32, fontSize:10, bold:true, color:C.white, fontFace:sans, align:"center", valign:"middle"});
+s3.addText(`Airbus YTD: ${num(A.deliveries_ytd)} aircraft delivered`, {x:5.1,  y:5.0, w:4.65, h:0.32, fontSize:10, bold:true, color:C.white, fontFace:sans, align:"center", valign:"middle"});
+
+// ── SLIDE 4: Model Breakdown ───────────────────────────────────────────────────
 const s4 = pptx.addSlide();
 s4.background = {color:C.offW};
 header(s4, "Deliveries by Aircraft Model — 2026 YTD", asOf);
-s4.addImage({path:"output/chart_models.png", x:0.2, y:0.88, w:9.6, h:4.42});
+s4.addImage({path:"output/chart_models.png", x:0.25, y:0.9, w:9.5, h:4.38});
 
-// ── SLIDE 5: Backlog Deep Dive ────────────────────────────────────────────────
+// ── SLIDE 5: Backlog ───────────────────────────────────────────────────────────
 const s5 = pptx.addSlide();
 s5.background = {color:C.white};
 header(s5, "Order Backlog by Programme", asOf);
-s5.addImage({path:"output/chart_backlog.png", x:0.2, y:0.88, w:9.6, h:4.0});
+s5.addImage({path:"output/chart_backlog.png", x:0.25, y:0.9, w:9.5, h:3.9});
 
-// Backlog coverage callout
-s5.addShape(pptx.shapes.RECTANGLE, {x:0.3, y:4.95, w:4.55, h:0.45, fill:{color:C.boeing}});
-s5.addText(`Boeing backlog = ${B.backlog_years} years of production`, {x:0.3, y:4.95, w:4.55, h:0.45, fontSize:10, bold:true, color:C.white, fontFace:sans, align:"center", valign:"middle"});
-s5.addShape(pptx.shapes.RECTANGLE, {x:5.15, y:4.95, w:4.55, h:0.45, fill:{color:C.airbusD}});
-s5.addText(`Airbus backlog = ${A.backlog_years} years of production`, {x:5.15, y:4.95, w:4.55, h:0.45, fontSize:10, bold:true, color:C.white, fontFace:sans, align:"center", valign:"middle"});
+// Backlog coverage callout cards
+[[B, "Boeing", C.boeing, 0.25], [A, "Airbus", C.airbus, 5.1]].forEach(([obj, label, col, x]) => {
+  card(s5, x, 4.88, 4.65, 0.44, col);
+  s5.addText(`${label} backlog = ${obj.backlog_years} years of production  ·  ${num(obj.backlog)} aircraft unfilled`,
+    {x:x+0.15, y:4.88, w:4.35, h:0.44, fontSize:10, bold:true, color:C.white, fontFace:sans, align:"center", valign:"middle"});
+});
 
-// ── SLIDE 6: Stock Performance Chart ─────────────────────────────────────────
+// ── SLIDE 6: Stock Performance ─────────────────────────────────────────────────
 const s6 = pptx.addSlide();
 s6.background = {color:C.white};
 header(s6, "Stock Performance — BA (NYSE) vs AIR.PA (Euronext)", Bs.as_of || asOf);
-s6.addImage({path:"output/chart_stock.png", x:0.2, y:0.88, w:9.6, h:4.1});
+s6.addImage({path:"output/chart_stock.png", x:0.25, y:0.9, w:9.5, h:3.88});
 
-// Stock cards below chart
-[[Bs, "Boeing (BA)", C.boeing, 0.3], [As, "Airbus (AIR.PA)", C.airbusD, 5.2]].forEach(([st, label, col, x]) => {
-  const changePos = Number(st.change_pct) >= 0;
-  card(s6, x, 5.02, 4.5, 0.5, C.white);
-  s6.addShape(pptx.shapes.RECTANGLE, {x, y:5.02, w:0.06, h:0.5, fill:{color:col}});
-  const currency = st.currency === "EUR" ? "€" : "$";
-  s6.addText(`${label}:  ${currency}${st.price}  `, {x:x+0.15, y:5.07, w:2.5, h:0.38, fontSize:13, bold:true, color:col, fontFace:serif, valign:"middle"});
-  s6.addText(pct(st.change_pct), {x:x+2.65, y:5.07, w:1.7, h:0.38, fontSize:13, bold:true, color:changePos?"008000":"CC0000", fontFace:serif, valign:"middle"});
+// Stock stat cards
+[[Bs, "Boeing  (BA)", C.boeing, "$", 0.25], [As, "Airbus  (AIR.PA)", C.airbus, "€", 5.1]].forEach(([st, label, col, cur, x]) => {
+  card(s6, x, 4.86, 4.65, 0.46, col);
+  s6.addText(`${label}`, {x:x+0.18, y:4.88, w:2.0, h:0.4, fontSize:11, color:C.white, fontFace:serif, valign:"middle", bold:true});
+  s6.addText(`${cur}${st.price}`, {x:x+2.1, y:4.88, w:1.3, h:0.4, fontSize:14, bold:true, color:C.gold, fontFace:serif, valign:"middle"});
+  const pos = Number(st.change_pct) >= 0;
+  s6.addText(chg(st.change_pct), {x:x+3.35, y:4.88, w:1.15, h:0.4, fontSize:11, bold:true, color: pos ? "90EE90" : "FFB3B3", fontFace:sans, valign:"middle", align:"right"});
 });
 
-// ── SLIDE 7: Orders Intelligence ─────────────────────────────────────────────
+// 52-week range bars
+[[Bs, C.boeing, "$", 0.25], [As, C.airbus, "€", 5.1]].forEach(([st, col, cur, x]) => {
+  if (!st.week52_low || !st.week52_high) return;
+  // Small 52w range indicator above the cards
+  s6.addText(`52w: ${cur}${st.week52_low} — ${cur}${st.week52_high}`, {x:x+0.18, y:4.72, w:4.3, h:0.16, fontSize:7.5, color:C.slate, fontFace:sans});
+});
+
+// ── SLIDE 7: Orders Intelligence ──────────────────────────────────────────────
 const s7 = pptx.addSlide();
 s7.background = {color:C.navy};
-header(s7, "Orders Intelligence — " + reportMonth, asOf);
+header(s7, "Orders & Book-to-Bill Intelligence", reportMonth);
 
-// Two big panels
-[[B, "BOEING", C.boeing, C.boeingL, 0.3], [A, "AIRBUS", C.airbusD, C.airbus, 5.2]].forEach(([obj, label, col, accent, x]) => {
-  card(s7, x, 0.95, 4.5, 4.45, col);
-  s7.addText(label, {x:x+0.2, y:1.05, w:4.1, h:0.5, fontSize:18, bold:true, color:C.white, fontFace:serif});
+[[B, "BOEING", C.boeing, C.bLight, 0.25], [A, "AIRBUS", C.airbus, C.aLight, 5.1]].forEach(([obj, label, col, accent, x]) => {
+  card(s7, x, 0.92, 4.65, 4.38, col, false);
+  // Header stripe
+  s7.addShape(pptx.shapes.RECTANGLE, {x, y:0.92, w:4.65, h:0.52, fill:{color: col === C.boeing ? "001F6B" : "003D5C"}});
+  s7.addText(`✈  ${label}`, {x:x+0.2, y:0.92, w:4.25, h:0.52, fontSize:16, bold:true, color:C.white, fontFace:serif, valign:"middle"});
+
+  const btb = (obj.orders_ytd / Math.max(obj.deliveries_ytd, 1)).toFixed(2);
   const items = [
-    ["YTD Orders",    num(obj.orders_ytd)],
-    ["YTD Deliveries",num(obj.deliveries_ytd)],
-    ["Total Backlog", num(obj.backlog)+" aircraft"],
-    ["Book-to-Bill",  (obj.orders_ytd / Math.max(obj.deliveries_ytd,1)).toFixed(2)+"x"],
-    ["Backlog Runway",obj.backlog_years+" years"],
+    ["Gross Orders YTD",    num(obj.orders_ytd),       "firm orders booked"],
+    ["Deliveries YTD",      num(obj.deliveries_ytd),   "aircraft handed over"],
+    ["Book-to-Bill Ratio",  btb + "x",                 btb >= 1 ? "orders exceed deliveries ✓" : "deliveries exceed orders"],
+    ["Total Backlog",       num(obj.backlog),           "aircraft on order"],
+    ["Backlog Runway",      obj.backlog_years + " yrs", "at current delivery pace"],
   ];
-  items.forEach(([lbl, val], i) => {
-    const y = 1.65 + i * 0.7;
-    s7.addText(lbl, {x:x+0.25, y:y+0.02, w:4.0, h:0.24, fontSize:9, color:C.ice, fontFace:sans});
-    s7.addText(val, {x:x+0.25, y:y+0.26, w:4.0, h:0.38, fontSize:17, bold:true, color:C.gold, fontFace:serif});
+
+  items.forEach(([lbl, val, sub], i) => {
+    const y = 1.57 + i * 0.73;
+    s7.addText(lbl, {x:x+0.22, y:y, w:4.2, h:0.24, fontSize:9, color:C.ice, fontFace:sans});
+    s7.addText(val, {x:x+0.22, y:y+0.24, w:4.2, h:0.35, fontSize:18, bold:true, color:C.gold, fontFace:serif});
+    s7.addText(sub, {x:x+0.22, y:y+0.59, w:4.2, h:0.16, fontSize:7.5, color:accent, fontFace:sans, italic:true});
   });
 });
 
-// ── SLIDE 8: Summary ──────────────────────────────────────────────────────────
+// ── SLIDE 8: Key Metrics Summary Cards ────────────────────────────────────────
 const s8 = pptx.addSlide();
-s8.background = {color:C.navy};
+s8.background = {color:C.offW};
+header(s8, "At a Glance — Key Metrics", reportMonth);
 
-s8.addShape(pptx.shapes.RECTANGLE, {x:0, y:0, w:4.2, h:5.625, fill:{color:C.blue}});
-s8.addShape(pptx.shapes.RECTANGLE, {x:0, y:0, w:0.08, h:5.625, fill:{color:C.gold}});
+// 8 stat cards in 2 rows of 4
+const cards8 = [
+  {label:"Boeing Deliveries YTD", value:num(B.deliveries_ytd), unit:"aircraft", col:C.boeing},
+  {label:"Airbus Deliveries YTD", value:num(A.deliveries_ytd), unit:"aircraft", col:C.airbus},
+  {label:"Boeing Orders YTD",     value:num(B.orders_ytd),     unit:"gross orders", col:C.boeing},
+  {label:"Airbus Orders YTD",     value:num(A.orders_ytd),     unit:"gross orders", col:C.airbus},
+  {label:"Boeing Backlog",        value:num(B.backlog),         unit:"aircraft unfilled", col:C.boeing},
+  {label:"Airbus Backlog",        value:num(A.backlog),         unit:"aircraft unfilled", col:C.airbus},
+  {label:"BA Stock",              value:`$${Bs.price}`,         unit:chg(Bs.change_pct)+" today", col: Number(Bs.change_pct)>=0 ? C.green : C.red},
+  {label:"AIR.PA Stock",          value:`€${As.price}`,         unit:chg(As.change_pct)+" today", col: Number(As.change_pct)>=0 ? C.green : C.red},
+];
 
-s8.addText("Summary", {x:0.25, y:0.55, w:3.7, h:0.65, fontSize:26, bold:true, color:C.white, fontFace:serif});
-s8.addText(reportMonth, {x:0.25, y:1.22, w:3.7, h:0.3, fontSize:10, color:C.ice, fontFace:sans});
+cards8.forEach((c, i) => {
+  const col = i % 4;
+  const row = Math.floor(i / 4);
+  const x = 0.25 + col * 2.42;
+  const y = 0.98 + row * 1.65;
+  statCard(s8, x, y, 2.28, c.label, c.value, c.unit, c.col, false);
+});
+
+// ── SLIDE 9: Back Cover ────────────────────────────────────────────────────────
+const s9 = pptx.addSlide();
+s9.background = {color:C.navy};
+
+s9.addShape(pptx.shapes.RECTANGLE, {x:0, y:0, w:4.0, h:5.625, fill:{color:C.blue}});
+s9.addShape(pptx.shapes.RECTANGLE, {x:0, y:0, w:0.1,  h:5.625, fill:{color:C.gold}});
+
+// Left: summary stats
+s9.addText("Summary", {x:0.25, y:0.55, w:3.5, h:0.65, fontSize:28, bold:true, color:C.white, fontFace:serif});
+s9.addText(reportMonth, {x:0.25, y:1.22, w:3.5, h:0.3,  fontSize:10, color:C.ice, fontFace:sans});
 
 const summaryRows = [
   ["Boeing deliveries YTD",  num(B.deliveries_ytd)],
@@ -194,23 +270,23 @@ const summaryRows = [
   ["Airbus orders YTD",      num(A.orders_ytd)],
   ["Boeing backlog",         num(B.backlog)+" ac"],
   ["Airbus backlog",         num(A.backlog)+" ac"],
-  [`BA stock (${Bs.as_of||"—"})`, `$${Bs.price} (${pct(Bs.change_pct)})`],
-  [`AIR.PA (${As.as_of||"—"})`,   `€${As.price} (${pct(As.change_pct)})`],
+  [`BA  (${Bs.as_of||"—"})`, `$${Bs.price}`],
+  [`AIR.PA (${As.as_of||"—"})`, `€${As.price}`],
 ];
 
 summaryRows.forEach(([lbl, val], i) => {
   const y = 1.65 + i * 0.47;
-  s8.addText(lbl, {x:0.25, y, w:2.0, h:0.3, fontSize:9.5, color:C.ice, fontFace:sans});
-  s8.addText(val, {x:2.3,  y, w:1.85, h:0.3, fontSize:9.5, bold:true, color:C.gold, fontFace:sans});
+  s9.addText(lbl, {x:0.25, y, w:2.05, h:0.32, fontSize:9, color:C.ice, fontFace:sans});
+  s9.addText(val, {x:2.32, y, w:1.55, h:0.32, fontSize:9, bold:true, color:C.gold, fontFace:sans, align:"right"});
 });
 
-// Right: big closing statement
-s8.addText("Manufacturer\nIntelligence", {x:4.5, y:1.1, w:5.2, h:1.8, fontSize:34, bold:true, color:C.white, fontFace:serif, lineSpacingMultiple:1.3});
-s8.addText("Monthly briefing on Boeing and Airbus commercial aircraft orders, deliveries, backlog, and stock performance. Data sourced from official manufacturer reports and Yahoo Finance.", {x:4.5, y:3.2, w:5.2, h:1.1, fontSize:11, color:C.ice, fontFace:sans, lineSpacingMultiple:1.35});
-s8.addShape(pptx.shapes.RECTANGLE, {x:4.5, y:4.45, w:5.2, h:0.06, fill:{color:C.gold}});
-s8.addText("EuroAir Intel · Published monthly on the 15th", {x:4.5, y:4.6, w:5.2, h:0.3, fontSize:10, color:C.slate, fontFace:sans});
+// Right: closing
+s9.addText("Boeing\nvs\nAirbus", {x:4.3, y:0.9, w:5.3, h:2.2, fontSize:48, bold:true, color:C.white, fontFace:serif, lineSpacingMultiple:1.2, align:"center"});
+s9.addText("Monthly intelligence briefing on commercial aircraft orders, deliveries, backlog, and stock performance. Data from official manufacturer releases and Yahoo Finance.", {x:4.3, y:3.3, w:5.3, h:1.0, fontSize:11, color:C.ice, fontFace:sans, lineSpacingMultiple:1.35, align:"center"});
+s9.addShape(pptx.shapes.RECTANGLE, {x:4.3, y:4.45, w:5.3, h:0.05, fill:{color:C.gold}});
+s9.addText("EuroAir Intel  ·  Published monthly on the 15th  ·  aviotiongeek@gmail.com", {x:4.3, y:4.6, w:5.3, h:0.3, fontSize:9.5, color:C.slate, fontFace:sans, align:"center"});
 
-// ── Write ─────────────────────────────────────────────────────────────────────
+// ── Write ──────────────────────────────────────────────────────────────────────
 fs.mkdirSync("output", {recursive:true});
 const fname = `output/Manufacturer_Intelligence_Report_${d.reportDate}.pptx`;
 pptx.writeFile({fileName: fname})
